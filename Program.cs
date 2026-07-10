@@ -9,10 +9,9 @@ namespace ConsoleFileManager
         public async static Task Main(string[] args)
         {
             FileProvider fileProvider = new FileProvider();
-            TextSerializer serializer = new TextSerializer();
-            DirectoryProvider  directoryProvider = new DirectoryProvider();
-            FileService<string> fileService = new FileService<string>(fileProvider, serializer);
-            ConsoleApplication console = new ConsoleApplication(fileService, directoryProvider);
+            DirectoryProvider directoryProvider = new DirectoryProvider();
+            FileSystemService systemService = new FileSystemService(fileProvider, directoryProvider, @"C:\Proga");
+            ConsoleApplication console = new ConsoleApplication(systemService);
 
             await console.Start();
         }

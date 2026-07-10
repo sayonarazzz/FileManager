@@ -1,18 +1,15 @@
 ﻿using ConsoleFileManager.Core;
 using ConsoleFileManager.Enum;
-using ConsoleFileManager.Infrastructure;
 namespace ConsoleFileManager.UI;
 
 public class ConsoleApplication
 {
-    private readonly IFileService<string> fileService;
-    private TextDocument? currentDocument;
-    private IDirectoryProvider providerDirectory;
-
-    public ConsoleApplication(IFileService<string> fileService, IDirectoryProvider providerDirectory)
+    private readonly IFileSystemService systemService;
+    private Document? currentDocument;
+    
+    public ConsoleApplication(IFileSystemService systemService)
     {
-        this.fileService = fileService;
-        this.providerDirectory = providerDirectory;
+        this.systemService = systemService;
     }
 
     public async Task Start()
@@ -21,14 +18,14 @@ public class ConsoleApplication
         
         while (!exit)
         {
-            ConsoleUI.ShowDirectoryInfo(FileSettings.BasePath, providerDirectory.GetDirectories(FileSettings.BasePath), providerDirectory.GetFiles(FileSettings.BasePath));
+            ConsoleUI.ShowDirectoryInfo(systemService.GetCurrentPath(), systemService.GetDirectories(), systemService.GetFiles());
             ConsoleUI.ShowMainMenu();
             
             string choice = ConsoleInput.ReadLine();
 
             switch (choice)
             {
-                case "9": // выход
+                case "8": // выход
                     exit = true;
                     break;
 
@@ -56,11 +53,7 @@ public class ConsoleApplication
                     TryRename(); 
                     break;
                 
-                case "7": // перемещение
-                    TryMove();
-                    break;
-                
-                case "8": // вернуться назад по пути
+                case "7": // вернуться назад по пути
                     TryBackDirectory();
                     break;
             }
@@ -71,47 +64,26 @@ public class ConsoleApplication
     {
         string name = ConsoleInput.ReadLine(" | Введите название файла");
         string text = ConsoleInput.ReadLine(" | Введите данные");
-        string fullPath = FileSettings.GetFullPath(name);
-
-        try
-        {
-            await fileService.WriteAsync(fullPath, text);
-        }
-        catch (FileNotFoundException)
-        {
-            Console.WriteLine(" | Файл не создался");
-        }
-        catch (IOException)
-        {
-            Console.WriteLine(" | Ошибка создания файла");
-        }
+        
+        await systemService.TryCreateFileAsync(name, text);
     }
 
     private async Task OpenFileAsync()
     {
         string name = ConsoleInput.ReadLine(" | Введите название файла");
-        string fullPath = FileSettings.GetFullPath(name);
-        string text;
 
-        try
+        OperationResult<string> result = await systemService.TryOpenFileAsync(name);
+
+        if (!result.Success)
         {
-            text = await fileService.ReadAsync(fullPath);
-        }
-        catch (FileNotFoundException)
-        {
-            Console.WriteLine(" | Файл не найден");
+            Console.WriteLine(" | Не удалось открыть файл");
             return;
         }
-        catch (IOException)
-        {
-            Console.WriteLine(" | Ошибка чтения файла");
-            return;
-        }
-        
-        currentDocument = new TextDocument(fullPath, text);
-        
-        ConsoleUI.ShowFilePath(fullPath);
-        
+
+        currentDocument = new Document(name, result.Value);
+
+        ConsoleUI.ShowFilePath(currentDocument.FullPath);
+
         await FileMenuAsync();
     }
 
@@ -153,492 +125,168 @@ public class ConsoleApplication
 
     private async Task<bool> CloseDocumentAsync()
     {
-        if (currentDocument.IsModified)
+        if (!currentDocument.IsModified)
         {
-            ConsoleUI.ShowSaveMenu();
-            
-            string choice = ConsoleInput.ReadLine(" | Выберите действие");
-                
-            switch (choice)
-            {
-                case "1": // сохранить изменения
-                    try
-                    {
-                        await fileService.WriteAsync(currentDocument.FullPath, currentDocument.Text);
-                        currentDocument.IsModified = false;
-                    }
-                    catch (FileNotFoundException)
-                    {
-                        Console.WriteLine(" | Файл не найден");
-                        return false;
-                    }
-                    catch (IOException)
-                    {
-                        Console.WriteLine(" | Ошибка сохранения файла");
-                        return false;
-                    }
+            return true;
+        }
 
-                    return true;
-                    
-                case "2": // не сохранять изменения
-                    return true;
-                    
-                case "3": // отменить операцию выхода и продолжить работу с файлом
+        ConsoleUI.ShowSaveMenu();
+
+        string choice = ConsoleInput.ReadLine(" | Выберите действие");
+
+        switch (choice)
+        {
+            case "1":
+                bool success = await systemService.TryAppendFileAsync(currentDocument.FullPath, currentDocument.Text);
+
+                if (!success)
+                {
+                    Console.WriteLine(" | Не удалось сохранить файл");
                     return false;
-            }
-        }
+                }
 
-        return true;
-    }
+                currentDocument.IsModified = false;
+                
+                return true;
 
-    private StatusDirectory ChangeDirectory(string path)
-    {
-        if (!providerDirectory.Exists(path))
-        {
-            return StatusDirectory.Warning;
+            case "2":
+                return true;
+
+            case "3":
+                return false;
+
+            default:
+                return false;
         }
-        
-        FileSettings.BasePath = path;
-        
-        return StatusDirectory.Success;
     }
 
     private void TryChangeDirectory()
     {
         string name = ConsoleInput.ReadLine(" | Введите название папки");
-        string path = FileSettings.GetFullPath(name);
-        
-        StatusDirectory status = ChangeDirectory(path);
 
-        if (status == StatusDirectory.Success)
+        if (systemService.TryGoToDirectory(name))
         {
             return;
         }
-        else if (status == StatusDirectory.Warning)
+
+        Console.WriteLine(" | Такой папки не существует");
+        ConsoleUI.ShowQuestionMenu(" | Создать такую папку?");
+
+        string choice = ConsoleInput.ReadLine(" | Выберите действие:");
+
+        if (choice != "1")
         {
-            if (CreateDirectory(path))
+            return;
+        }
+
+        while (true)
+        {
+            if (systemService.TryCreateDirectory(name))
             {
-                ChangeDirectory(path);
+                systemService.TryGoToDirectory(name);
+                return;
+            }
+
+            ConsoleUI.ShowQuestionMenu(" | Папка не создалась. Попробовать снова?");
+
+            choice = ConsoleInput.ReadLine(" | Выберите действие:");
+
+            if (choice != "1")
+            {
+                return;
             }
         }
     }
     
-    private bool CreateDirectory(string fullPath)
+    private bool CreateDirectory(string name)
     {
         Console.WriteLine(" | Такой папки не существует");
         ConsoleUI.ShowQuestionMenu(" | Создать такую папку?");
-        
+
         string choice = ConsoleInput.ReadLine(" | Выберите действие:");
 
-        if (choice == "1")
+        if (choice != "1")
         {
-            bool status = TryCreateDirectory(fullPath);
-            
-            while (!status)
-            {
-                ConsoleUI.ShowQuestionMenu(" | Папка не создалась. Попробовать снова?");
-                
-                string text = ConsoleInput.ReadLine();
-
-                if (text == "1")
-                {
-                    status = TryCreateDirectory(fullPath);
-                }
-                else if (text != "1") // как только сделаем валидацию ввода, так сразу жеско == "2".
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        return false;
-    }
-
-    private bool TryCreateDirectory(string fullPath)
-    {
-        try
-        {
-            providerDirectory.CreateDirectory(fullPath);
-        }
-        catch  (IOException)
-        {
-            Console.WriteLine(" | Не удалось создать папку");
             return false;
         }
-        
+
+        while (!systemService.TryCreateDirectory(name))
+        {
+            ConsoleUI.ShowQuestionMenu(" | Папка не создалась. Попробовать снова?");
+
+            choice = ConsoleInput.ReadLine(" | Выберите действие:");
+
+            if (choice != "1")
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 
     private void TryBackDirectory()
     {
-        if (FileSettings.BasePath == FileSettings.RootPath)
+        if (!systemService.TryBackDirectory())
         {
-            Console.WriteLine(" | Выйти дальше этой корневой папки нельзя");
-            return;
-        }
-
-        string? parentPath = providerDirectory.GetParentDirectory(FileSettings.BasePath);
-
-        if (parentPath == null)
-        {
-            Console.WriteLine(" | Не удалось перейти в корневую папку");
-            return;
-        }
-
-        StatusDirectory status = ChangeDirectory(parentPath);
-
-        if (status == StatusDirectory.Warning)
-        {
-            Console.WriteLine(" | Ошибка перехода");
+            Console.WriteLine(" | Не удалось перейти в родительскую директорию");
         }
     }
 
     private void TryChangeAbsoluteDirectory()
     {
-        string fullPath = ConsoleInput.ReadLine(" | Введите абсолютный путь");
+        string path = ConsoleInput.ReadLine(" | Введите абсолютный путь");
 
-        if (!FileSettings.IsValidPath(fullPath))
+        if (!systemService.TryGoToAbsolutePath(path))
         {
-            Console.WriteLine(" | Выход за пределы рабочей директории не возможен");
-            return;
-        }
-        
-        StatusDirectory status = ChangeDirectory(fullPath);
-        
-        if (status == StatusDirectory.Warning)
-        {
-            Console.WriteLine(" | Такого пути не существует");
+            Console.WriteLine(" | Не удалось перейти по указанному пути");
         }
     }
 
     private void TryDelete()
     {
         string name = ConsoleInput.ReadLine(" | Введите название папки или файла");
-        string path = FileSettings.GetFullPath(name);
-        
-        ItemType type = providerDirectory.GetItemType(path);
 
-        if (type == ItemType.None)
-        {
-            Console.WriteLine(" | Нет такого файла или папки");
-            return;
-        }
-        
         ConsoleUI.ConfirmDelete();
-                
+
         string choice = ConsoleInput.ReadLine();
 
         if (choice != "1")
         {
             return;
         }
-        
-        switch (type)
+
+        if (systemService.TryDelete(name))
         {
-            case ItemType.File:
-                try
-                {
-                    providerDirectory.DeleteFile(path);
-                    Console.WriteLine(" | Файл успешно удален");
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    Console.WriteLine(" | Недостаточно прав для удаления");
-                }
-                catch (IOException)
-                {
-                    Console.WriteLine(" | Произошла ошибка. Удаление отменено");
-                }
-                
-                break;
-            
-            case ItemType.Directory:
-                try
-                {
-                    providerDirectory.DeleteDirectory(path);
-                    Console.WriteLine(" | Папка успешно удалена");
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    Console.WriteLine(" | Недостаточно прав для удаления");
-                }
-                catch (IOException)
-                {
-                    Console.WriteLine(" | Произошла ошибка. Удаление отменено");
-                }
-                
-                break;
+            Console.WriteLine(" | Объект успешно удален");
+        }
+        else
+        {
+            Console.WriteLine(" | Не удалось удалить объект");
         }
     }
 
     private void TryRename()
     {
-        string oldName = ConsoleInput.ReadLine(" | Введите название обьекта, который хотите переименовать");
-        string oldPath = FileSettings.GetFullPath(oldName);
-        
-        ItemType type = providerDirectory.GetItemType(oldPath);
-        
-        if (type == ItemType.None)
-        {
-            Console.WriteLine(" | Нет такого файла или папки");
-            return;
-        }
-        
+        string oldName = ConsoleInput.ReadLine(" | Введите название объекта, который хотите переименовать");
         string newName = ConsoleInput.ReadLine(" | Введите новое название");
-        string newPath = FileSettings.GetFullPath(newName);
-        
+
         ConsoleUI.ConfirmRename();
-                
+
         string choice = ConsoleInput.ReadLine();
 
         if (choice != "1")
         {
             return;
         }
-        
-        switch (type)
-        {
-            case ItemType.File:
-                try
-                {
-                    providerDirectory.RenameFile(oldPath, newPath);
-                    Console.WriteLine(" | Файл успешно переименован");
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    Console.WriteLine(" | Недостаточно прав для переименования");
-                }
-                catch (IOException)
-                {
-                    Console.WriteLine(" | Произошла ошибка. Переименование отменено");
-                }
-                
-                break;
-            
-            case ItemType.Directory:
-                try
-                {
-                    providerDirectory.RenameDirectory(oldPath, newPath);
-                    
-                    if (oldPath == FileSettings.BasePath)
-                    {
-                        FileSettings.BasePath = newPath;
-                    }
-                    
-                    Console.WriteLine(" | Папка успешно переименованна");
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    Console.WriteLine(" | Недостаточно прав для переименования");
-                }
-                catch (IOException)
-                {
-                    Console.WriteLine(" | Произошла ошибка. Переименование отменено");
-                }
-                
-                break;
-        }
-    }
 
-    private void TryMove()
-    {
-        string name = ConsoleInput.ReadLine(" | Введите название обьекта, который хотите переместить");
-        string oldPath = FileSettings.GetFullPath(name);
-        
-        ItemType type = providerDirectory.GetItemType(oldPath);
-
-        if (type == ItemType.None)
+        if (systemService.TryRename(oldName, newName))
         {
-            Console.WriteLine(" | Нет такого файла или папки");
-            return;
+            Console.WriteLine(" | Объект успешно переименован");
         }
-
-        if (oldPath == FileSettings.BasePath)
+        else
         {
-            Console.WriteLine(" | Перемещение текущей папки пока невозможно");
-            return;
-        }
-        
-        string tempPath = ConsoleInput.ReadLine(" | Введите путь, куда хотите переместить обьект");
-
-        if (!FileSettings.IsValidPath(tempPath))
-        {
-            Console.WriteLine(" | Перемещение вне корневой папки невозможно");
-            return;
-        }
-        
-        if (!providerDirectory.Exists(tempPath))
-        {
-            Console.WriteLine(" | Такой папки не существует");
-            return;
-        }
-        
-        string newPath = FileSettings.GetFullPath(tempPath, name);
-        
-        if (providerDirectory.GetItemType(newPath) != ItemType.None)
-        {
-            Console.WriteLine(" | В папке назначения уже существует объект с таким именем");
-            return;
-        }
-        
-        if (oldPath == newPath)
-        {
-            Console.WriteLine(" | Объект уже находится в этой папке");
-            return;
-        }
-        
-        ConsoleUI.ConfirmMove();
-                
-        string choice = ConsoleInput.ReadLine();
-
-        if (choice != "1")
-        {
-            return;
-        }
-        
-        switch (type)
-        {
-            case ItemType.File:
-                try
-                {
-                    providerDirectory.MoveFile(oldPath, newPath);
-                    Console.WriteLine(" | Файл успешно перемещен");
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    Console.WriteLine(" | Недостаточно прав для перемещения");
-                }
-                catch (IOException)
-                {
-                    Console.WriteLine(" | Произошла ошибка. Перемещение отменено");
-                }
-                
-                break;
-            
-            case ItemType.Directory:
-                try
-                {
-                    providerDirectory.MoveDirectory(oldPath, newPath);
-                    
-                    Console.WriteLine(" | Папка успешно перемещена");
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    Console.WriteLine(" | Недостаточно прав для перемещения");
-                }
-                catch (IOException)
-                {
-                    Console.WriteLine(" | Произошла ошибка. Перемещение отменено");
-                }
-                
-                break;
-        }
-    }
-
-    private void TryCopy()
-    {
-        string name = ConsoleInput.ReadLine(" | Введите название обьекта, который хотите скопировать");
-        string oldPath = FileSettings.GetFullPath(name);
-        
-        ItemType type = providerDirectory.GetItemType(oldPath);
-
-        if (type == ItemType.None)
-        {
-            Console.WriteLine(" | Нет такого файла или папки");
-            return;
-        }
-
-        if (type == ItemType.Directory)
-        {
-            Console.WriteLine(" | Копирование папки не поддерживается");
-            return;
-        }
-
-        if (oldPath == FileSettings.BasePath)
-        {
-            Console.WriteLine(" | Копирование текущей папки пока невозможно");
-            return;
-        }
-        
-        string tempPath = ConsoleInput.ReadLine(" | Введите путь, куда хотите копировать обьект");
-
-        if (!FileSettings.IsValidPath(tempPath))
-        {
-            Console.WriteLine(" | Копирование вне корневой папки невозможно");
-            return;
-        }
-        
-        if (!providerDirectory.Exists(tempPath))
-        {
-            Console.WriteLine(" | Такой папки не существует");
-            return;
-        }
-        
-        string newPath = FileSettings.GetFullPath(tempPath, name);
-        
-        if (providerDirectory.GetItemType(newPath) != ItemType.None)
-        {
-            Console.WriteLine(" | В папке назначения уже существует объект с таким именем");
-            return;
-        }
-        
-        if (oldPath == newPath)
-        {
-            Console.WriteLine(" | Объект уже находится в этой папке");
-            return;
-        }
-        
-        ConsoleUI.ConfirmCopy();
-                
-        string choice = ConsoleInput.ReadLine();
-        
-        if (choice != "1")
-        {
-            return;
-        }
-        
-        switch (type)
-        {
-            case ItemType.File:
-                try
-                {
-                    providerDirectory.CopyFile(oldPath, newPath);
-                    Console.WriteLine(" | Файл успешно скопирован");
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    Console.WriteLine(" | Недостаточно прав для копирования");
-                }
-                catch (IOException)
-                {
-                    Console.WriteLine(" | Произошла ошибка. Копирование отменено");
-                }
-                
-                break;
-            
-            case ItemType.Directory:
-                try
-                {
-                    providerDirectory.CopyDirectory(oldPath, newPath);
-                    
-                    Console.WriteLine(" | Папка успешно скопирована");
-                }
-                catch (NotSupportedException)
-                {
-                    Console.WriteLine(" | Копирование папок пока не поддерживается");
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    Console.WriteLine(" | Недостаточно прав для копирования");
-                }
-                catch (IOException)
-                {
-                    Console.WriteLine(" | Произошла ошибка. Копирование отменено");
-                }
-                
-                break;
+            Console.WriteLine(" | Не удалось переименовать объект");
         }
     }
 }

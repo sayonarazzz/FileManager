@@ -17,4 +17,19 @@ public class FileProvider : IFileProvider
     {
         await File.AppendAllTextAsync(path, text);
     }
+
+    public void Delete(string path)
+    {
+        File.Delete(path);
+    }
+
+    public bool Exists(string path)
+    {
+        return File.Exists(path);
+    }
+
+    public void Rename(string oldPath, string newPath)
+    {
+        File.Move(oldPath, newPath);
+    }
 }

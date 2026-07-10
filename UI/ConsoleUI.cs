@@ -14,9 +14,8 @@ public static class ConsoleUI
         Console.WriteLine(" | 4: Выполнить переход по абсолютному пути");
         Console.WriteLine(" | 5: Удалить");
         Console.WriteLine(" | 6: Переименовать");
-        Console.WriteLine(" | 7: Переместить");
-        Console.WriteLine(" | 8: Вернуться назад");
-        Console.WriteLine(" | 9: Выход");
+        Console.WriteLine(" | 7: Вернуться назад");
+        Console.WriteLine(" | 8: Выход");
         Console.WriteLine(" | ");
     }
 

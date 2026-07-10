@@ -1,89 +1,39 @@
-﻿using ConsoleFileManager.Enum;
-namespace ConsoleFileManager.Infrastructure;
+﻿namespace ConsoleFileManager.Infrastructure;
 
 public class DirectoryProvider : IDirectoryProvider 
 {
-    public bool Exists(string path) // существование папки по этому пути
+    public void Delete(string path)
+    {
+        Directory.Delete(path, true);
+    }
+    
+    public bool Exists(string path)
     {
         return Directory.Exists(path);
     }
 
-    public void CreateDirectory(string path)
-    {
-        Directory.CreateDirectory(path);
-    }
-
     public string? GetParentDirectory(string path)
     {
-        string? parentPath = Directory.GetParent(path)?.FullName;
-        
-        return parentPath;
+        return Directory.GetParent(path)?.FullName;
+    }
+
+    public void Rename(string oldPath, string newPath)
+    {
+        Directory.Move(oldPath, newPath);
+    }
+    
+    public string[] GetFiles(string path)
+    {
+        return Directory.GetFiles(path);
     }
 
     public string[] GetDirectories(string path)
     {
-        string[] paths = Directory.GetDirectories(path);
-        return paths.Select(directory => Path.GetFileName(directory)).ToArray();
-    }
-
-    public string[] GetFiles(string path)
-    {
-        string[] paths = Directory.GetFiles(path);
-        return paths.Select(file => Path.GetFileName(file)).ToArray();
-    }
-
-    public ItemType GetItemType(string path)
-    {
-        if (Directory.Exists(path))
-        {
-            return ItemType.Directory;
-        }
-
-        if (File.Exists(path))
-        {
-            return ItemType.File;
-        }
-        
-        return ItemType.None;
-    }
-
-    public void DeleteFile(string path)
-    {
-        File.Delete(path);
-    }
-
-    public void DeleteDirectory(string path)
-    {
-        Directory.Delete(path, true);
-    }
-
-    public void RenameFile(string oldPath, string newPath)
-    {
-        File.Move(oldPath, newPath);
+        return Directory.GetDirectories(path);
     }
     
-    public void RenameDirectory(string oldPath, string newPath)
+    public void Create(string path)
     {
-        Directory.Move(oldPath, newPath);
-    }
-
-    public void MoveFile(string oldPath, string newPath)
-    {
-        File.Move(oldPath, newPath);
-    }
-
-    public void MoveDirectory(string oldPath, string newPath)
-    {
-        Directory.Move(oldPath, newPath);
-    }
-
-    public void CopyFile(string oldPath, string newPath)
-    {
-        File.Copy(oldPath, newPath);
-    }
-
-    public void CopyDirectory(string oldPath, string newPath)
-    {
-        throw new NotSupportedException();
+        Directory.CreateDirectory(path);
     }
 }
