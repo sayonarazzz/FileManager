@@ -1,35 +1,22 @@
-﻿namespace ConsoleFileManager.Infrastructure;
+using FileManager.Core.Contracts;
+
+namespace FileManager.Infrastructure;
 
 public class FileProvider : IFileProvider
 {
-    public async Task<string> ReadAsync(string path)
+    public bool Exists(string fullPath) => File.Exists(fullPath);
+
+    public long GetLength(string fullPath) => new FileInfo(fullPath).Length;
+
+    public string ReadAllText(string fullPath) => File.ReadAllText(fullPath);
+
+    public void AppendAllText(string fullPath, string text) =>
+        File.AppendAllText(fullPath, text);
+
+    public void CreateEmpty(string fullPath)
     {
-        string text = await File.ReadAllTextAsync(path);
-        return text;
+        using FileStream stream = File.Create(fullPath);
     }
 
-    public async Task WriteAsync(string path, string text)
-    {
-        await File.WriteAllTextAsync(path, text);
-    }
-
-    public async Task AppendAsync(string path, string text)
-    {
-        await File.AppendAllTextAsync(path, text);
-    }
-
-    public void Delete(string path)
-    {
-        File.Delete(path);
-    }
-
-    public bool Exists(string path)
-    {
-        return File.Exists(path);
-    }
-
-    public void Rename(string oldPath, string newPath)
-    {
-        File.Move(oldPath, newPath);
-    }
+    public void Delete(string fullPath) => File.Delete(fullPath);
 }

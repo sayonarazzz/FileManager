@@ -1,39 +1,48 @@
-﻿namespace ConsoleFileManager.Infrastructure;
+using FileManager.Core.Contracts;
+using FileManager.Core;
+using FileManager.Core.Models;
 
-public class DirectoryProvider : IDirectoryProvider 
+namespace FileManager.Infrastructure;
+
+public class DirectoryProvider : IDirectoryProvider
 {
-    public void Delete(string path)
+    public OutcomeResult<ISystemEntry> GetEntries(string fullPath)
     {
-        Directory.Delete(path, true);
-    }
-    
-    public bool Exists(string path)
-    {
-        return Directory.Exists(path);
-    }
+        List<ISystemEntry> entries = new();
+        List<ISystemEntry> particalEntries = new();
 
-    public string? GetParentDirectory(string path)
-    {
-        return Directory.GetParent(path)?.FullName;
-    }
+        foreach (string path in Directory.EnumerateFileSystemEntries(fullPath))
+        {
+            try
+            {
+                string name = Path.GetFileName(path);
+                FileAttributes attributes = File.GetAttributes(path);
 
-    public void Rename(string oldPath, string newPath)
-    {
-        Directory.Move(oldPath, newPath);
-    }
-    
-    public string[] GetFiles(string path)
-    {
-        return Directory.GetFiles(path);
-    }
+                if (attributes.HasFlag(FileAttributes.Directory))
+                {
+                    entries.Add(new DirectoryItem(path, name));
+                }
+                else
+                {
+                    long size = new FileInfo(path).Length;
+                    entries.Add(new FileItem(path, name, size));
+                }
+            }
+            catch (Exception)
+            {
+                string name = Path.GetFileName(path);
+                particalEntries.Add(new DirectoryItem(path, name));
+            }
+        }
 
-    public string[] GetDirectories(string path)
-    {
-        return Directory.GetDirectories(path);
-    }
-    
-    public void Create(string path)
-    {
-        Directory.CreateDirectory(path);
+        IReadOnlyList<ISystemEntry> sortedEntries = entries
+            .OrderByDescending(e => e is DirectoryItem)
+            .ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase) // второе правило - не учитывать регистр
+            .ToList();
+        IReadOnlyList<ISystemEntry> sortedParticalEntries = particalEntries
+            .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        
+        return new OutcomeResult<ISystemEntry>(sortedEntries, sortedParticalEntries);
     }
 }

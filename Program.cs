@@ -1,19 +1,22 @@
-﻿using ConsoleFileManager.Core;
-using ConsoleFileManager.Infrastructure;
-using ConsoleFileManager.UI;
+﻿using FileManager.Core;
+using FileManager.Infrastructure;
+using FileManager.UI;
 
-namespace ConsoleFileManager
+namespace FileManager
 {
-    public class Program
+    class Program
     {
-        public async static Task Main(string[] args)
+        static void Main(string[] args)
         {
-            FileProvider fileProvider = new FileProvider();
+            DriveProvider driveProvider = new DriveProvider();
             DirectoryProvider directoryProvider = new DirectoryProvider();
-            FileSystemService systemService = new FileSystemService(fileProvider, directoryProvider, @"C:\Proga");
-            ConsoleApplication console = new ConsoleApplication(systemService);
-
-            await console.Start();
+            FileProvider fileProvider = new FileProvider();
+            CentralSystem centralSystem = new CentralSystem(driveProvider, directoryProvider, fileProvider);
+            DataView dataView = new DataView();
+            OptionView optionView = new OptionView();
+            Application application = new Application(centralSystem, dataView, optionView);
+            
+            application.Start();
         }
     }
 }
